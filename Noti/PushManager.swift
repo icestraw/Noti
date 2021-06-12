@@ -16,6 +16,7 @@ import Alamofire
 class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate {
     
     var socket:WebSocket?
+    var isConnected: Bool = false
     let center = NSUserNotificationCenter.default
     var pushHistory = [JSON]()
     var userInfo:JSON?
@@ -29,11 +30,12 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
     
     init(token: String) {
         self.token = token
-        self.socket = WebSocket(url: URL(string: "wss://stream.pushbullet.com/websocket/" + token)!)
+        self.socket = WebSocket(request: URLRequest(url: URL(string: "wss://stream.pushbullet.com/websocket/" + token)!))
         self.ephemerals = Ephemerals(token: token);
         self.userState = "Initializing..."
         self.nopTimer = Timer()
         super.init()
+        self.socket?.delegate = self
         
         center.delegate = self
         self.initCrypt()
@@ -54,15 +56,15 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
     }
     
     @objc internal func disconnect(attemptReconnect: Bool = true) {
-        log.warning("Triggered disconnect attemptReconnect:\(attemptReconnect), isConnected:\(self.socket!.isConnected)")
+        log.warning("Triggered disconnect attemptReconnect:\(attemptReconnect), isConnected:\(self.isConnected)")
         //stops attempts to reconnect
         if !attemptReconnect {
             self.killed = true
         }
         
         //disconnect now!
-        if self.socket!.isConnected {
-            self.socket!.disconnect(forceTimeout: 0)
+        if self.isConnected {
+            self.socket!.forceDisconnect()
         }
     }
     
@@ -99,13 +101,13 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
         //todo: this is kinda dirty ...
         self._callback = callback
         
-        let headers = [
+        let headers: HTTPHeaders = [
             "Access-Token": token
         ];
         
-        Alamofire.request("https://api.pushbullet.com/v2/users/me", headers: headers)
+        AF.request("https://api.pushbullet.com/v2/users/me", headers: headers)
             .responseString { response in
-                if let info = response.result.value {
+                if let info = response.value {
                     debugPrint(info)
                     self.userInfo = JSON(parseJSON:info)
                     
@@ -119,7 +121,7 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
                         }
                     }
                     
-                } else if response.result.error != nil {
+                } else if response.error != nil {
                     log.error("response error requesting user info")
                     if callback == nil {
                         self.disconnect(attemptReconnect:false)
@@ -169,9 +171,9 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
                 }
                 handleNotification(notification)
                 
-                Alamofire.request("https://update.pushbullet.com/android_mapping.json")
+                AF.request("https://update.pushbullet.com/android_mapping.json")
                     .responseString { response in
-                        if let result = response.result.value {
+                        if let result = response.value {
                             let mapping = JSON(parseJSON:result)
                             
                             var indexToBeRemoved = -1, i = -1;
@@ -227,8 +229,8 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
                 }
                 
                 //determine if we replied to a sms or a normal notification
-                if (notification.identifier?.characters.count)! > 4 {
-                    let index = notification.identifier?.characters.index((notification.identifier?.startIndex)!, offsetBy: 4)
+                if (notification.identifier?.count)! > 4 {
+                    let index = notification.identifier?.index((notification.identifier?.startIndex)!, offsetBy: 4)
                     if notification.identifier?.substring(to: index!) == "sms_" {
                         var indexToBeRemoved = -1, i = -1;
                         for item in pushHistory {
@@ -273,38 +275,176 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
         socket!.connect()
     }
     
-    func websocketDidConnect(socket: WebSocketClient) {
-        if let photo = self.userInfo!["image_url"].string {
-            Alamofire.request(photo)
-                .responseData { response in
-                    self.setState("Logged in as: " + self.userInfo!["name"].string!, image: NSImage(data: response.result.value!), disabled: false)
-            }
-        } else {
-            self.setState("Logged in as: " + self.userInfo!["name"].string!, disabled: false)
-        }
-        
-        
-        log.debug("PushManager is connected")
-    }
     
-    func websocketDidDisconnect(socket: WebSocketClient, error: Error?) {
-        log.warning("PushManager is disconnected: \(error?.localizedDescription ?? "")")
-        
-        if(!self.killed) {
-            log.info("Reconnecting in 5 sec");
-            if error != nil {
-                setState("Disconnected: \(error!.localizedDescription), retrying...", disabled: true)
-            }
-            else {
-                setState("Disconnected, retrying...", disabled: true)
+    
+    
+    
+    
+    
+    
+    // MARK: websocket delegate
+    func didReceive(event: WebSocketEvent, client: WebSocket) {
+        switch event {
+        case .connected(let headers):
+            isConnected = true
+            print("websocket is connected: \(headers)")
+            
+            if let photo = self.userInfo!["image_url"].string {
+                AF.request(photo)
+                    .responseData { response in
+                        self.setState("Logged in as: " + self.userInfo!["name"].string!, image: NSImage(data: response.value!), disabled: false)
+                }
+            } else {
+                self.setState("Logged in as: " + self.userInfo!["name"].string!, disabled: false)
             }
             
-            Timer.scheduledTimer(timeInterval: 5, target: BlockOperation(block: self.connect), selector: #selector(Operation.main), userInfo: nil, repeats: false)
-        } else {
-            log.error("Not going to reconnect: I'm killed")
-            setState("Disconnected. Please log in.", disabled: true)
+            
+            log.debug("PushManager is connected")
+            
+        case .disconnected(let reason, let code):
+            isConnected = false
+            print("websocket is disconnected: \(reason) with code: \(code)")
+            
+            log.warning("PushManager is disconnected: \(reason ?? "")")
+            
+            if(!self.killed) {
+                log.info("Reconnecting in 5 sec");
+                if reason != nil {
+                    setState("Disconnected: \(reason), retrying...", disabled: true)
+                }
+                else {
+                    setState("Disconnected, retrying...", disabled: true)
+                }
+                
+                Timer.scheduledTimer(timeInterval: 5, target: BlockOperation(block: self.connect), selector: #selector(Operation.main), userInfo: nil, repeats: false)
+            } else {
+                log.error("Not going to reconnect: I'm killed")
+                setState("Disconnected. Please log in.", disabled: true)
+            }
+            
+        case .text(let string):
+            print("Received text: \(string)")
+            let text = String(string)
+            
+            print("PushManager", "receive", text)
+            
+            var message = JSON(parseJSON:text);
+            
+            if let type = message["type"].string {
+                switch type {
+                case "nop":
+                    self.nopTimer.invalidate()  // Resetting nopTimer
+                    self.nopTimer = Timer.scheduledTimer(timeInterval: 35.0, target: self, selector: #selector(PushManager.disconnectForTimeout), userInfo: nil, repeats: false)
+                case "tickle":
+                    if let subtype = message["subtype"].string {
+                        if(subtype == "account") {
+                            log.debug("TICKLE -> account")
+                            getUserInfo(nil)
+                        }
+                        else if(subtype == "push"){
+                            // When you receive a tickle message, it means that a resource of the type push has changed.
+                            // Request only the latest push: In this case can be a file, a link or just a simple note
+                            log.debug("TICKLE -> push")
+                            AF.request("https://api.pushbullet.com/v2/pushes?limit=1", headers: ["Access-Token": token])
+                                .responseString { response in
+                                    if let result = response.value {
+                                        let push = JSON(parseJSON:result)["pushes"][0]    // get ["pushes"][latest] array
+                                        self.pushHistory.append(push)
+                                        self.center.deliver(self.createNotification(push))
+                                    }
+                            };
+                        }
+                    }
+                    break;
+                case "push":
+                    let push = checkEncryption(message["push"]);    // Check for encryption and decrypt
+                    pushHistory.append(push)
+                    
+                    if let pushType = push["type"].string {
+                        switch(pushType) {
+                        case "mirror":
+                            log.debug("PUSH -> mirror")
+                            center.deliver(createNotification(push))
+                            break;
+                        case "dismissal":
+                            //loop through current user notifications, if identifier matches, remove it
+                            log.debug("PUSH -> dismiss")
+                            for noti in center.deliveredNotifications {
+                                if noti.identifier == push["notification_id"].string {
+                                    center.removeDeliveredNotification(noti)
+                                    print("Removed a noti (", noti.identifier!, ")")
+                                }
+                            }
+                            var i = -1, indexToBeRemoved = -1
+                            for item in pushHistory {
+                                i += 1
+                                if push["notification_id"].string == item["notification_id"].string {
+                                    indexToBeRemoved = i
+                                    break
+                                }
+                            }
+                            if indexToBeRemoved != -1 {
+                                pushHistory.remove(at: indexToBeRemoved)
+                            }
+                            
+                            break;
+                        case "sms_changed":
+                            log.debug("PUSH -> sms_changed")
+                            if push["notifications"].exists() {
+                                for sms in push["notifications"].array! {
+                                    let notification = NSUserNotification()
+                                    
+                                    notification.title = "SMS from " + sms["title"].string!
+                                    notification.informativeText = sms["body"].string
+                                    notification.hasReplyButton = true
+                                    notification.identifier = "sms_" + push["source_device_iden"].string! + "|" + sms["thread_id"].string! + "|" + String(sms["timestamp"].int!)
+                                    
+                                    notification.setValue(true, forKeyPath: "_showsButtons")
+                                    
+                                    notification.soundName = "Glass"
+                                    
+                                    if let photo = sms["image_url"].string {
+                                        AF.request(photo)
+                                            .responseData { response in
+                                                notification.setValue(NSImage(data: response.value!), forKey: "_identityImage")
+                                                self.center.deliver(notification)
+                                        }
+                                    } else {
+                                        self.center.deliver(notification)
+                                    }
+                                }
+                            }
+                            break;
+                        default:
+                            log.warning("Unknown type of push", pushType)
+                            break;
+                        }
+                    }
+                    break;
+                default:
+                    log.warning("Unknown type of message ", message["type"].string!)
+                    break;
+                }
+            }
+            
+        case .binary(let data):
+            print("Received data: \(data.count)")
+        case .ping(_):
+            break
+        case .pong(_):
+            break
+        case .viabilityChanged(_):
+            break
+        case .reconnectSuggested(_):
+            break
+        case .cancelled:
+            isConnected = false
+        case .error(let error):
+            isConnected = false
+//            handleError(error)
         }
     }
+
     
     func setPassword(password: String) {
         let iden = userInfo!["iden"].string!
@@ -312,109 +452,6 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
         userDefaults.set(key, forKey: "secureKey")
     }
     
-    func websocketDidReceiveMessage(socket: WebSocketClient, text: String) {
-        print("PushManager", "receive", text)
-        
-        var message = JSON(parseJSON:text);
-        
-        if let type = message["type"].string {
-            switch type {
-            case "nop":
-                self.nopTimer.invalidate()  // Resetting nopTimer
-                self.nopTimer = Timer.scheduledTimer(timeInterval: 35.0, target: self, selector: #selector(PushManager.disconnectForTimeout), userInfo: nil, repeats: false)
-            case "tickle":
-                if let subtype = message["subtype"].string {
-                    if(subtype == "account") {
-                        log.debug("TICKLE -> account")
-                        getUserInfo(nil)
-                    }
-                    else if(subtype == "push"){
-                        // When you receive a tickle message, it means that a resource of the type push has changed.
-                        // Request only the latest push: In this case can be a file, a link or just a simple note
-                        log.debug("TICKLE -> push")
-                        Alamofire.request("https://api.pushbullet.com/v2/pushes?limit=1", headers: ["Access-Token": token])
-                            .responseString { response in
-                                if let result = response.result.value {
-                                    let push = JSON(parseJSON:result)["pushes"][0]    // get ["pushes"][latest] array
-                                    self.pushHistory.append(push)
-                                    self.center.deliver(self.createNotification(push))
-                                }
-                        };
-                    }
-                }
-                break;
-            case "push":
-                let push = checkEncryption(message["push"]);    // Check for encryption and decrypt
-                pushHistory.append(push)
-                
-                if let pushType = push["type"].string {
-                    switch(pushType) {
-                    case "mirror":
-                        log.debug("PUSH -> mirror")
-                        center.deliver(createNotification(push))
-                        break;
-                    case "dismissal":
-                        //loop through current user notifications, if identifier matches, remove it
-                        log.debug("PUSH -> dismiss")
-                        for noti in center.deliveredNotifications {
-                            if noti.identifier == push["notification_id"].string {
-                                center.removeDeliveredNotification(noti)
-                                print("Removed a noti (", noti.identifier!, ")")
-                            }
-                        }
-                        var i = -1, indexToBeRemoved = -1
-                        for item in pushHistory {
-                            i += 1
-                            if push["notification_id"].string == item["notification_id"].string {
-                                indexToBeRemoved = i
-                                break
-                            }
-                        }
-                        if indexToBeRemoved != -1 {
-                            pushHistory.remove(at: indexToBeRemoved)
-                        }
-                        
-                        break;
-                    case "sms_changed":
-                        log.debug("PUSH -> sms_changed")
-                        if push["notifications"].exists() {
-                            for sms in push["notifications"].array! {
-                                let notification = NSUserNotification()
-                                
-                                notification.title = "SMS from " + sms["title"].string!
-                                notification.informativeText = sms["body"].string
-                                notification.hasReplyButton = true
-                                notification.identifier = "sms_" + push["source_device_iden"].string! + "|" + sms["thread_id"].string! + "|" + String(sms["timestamp"].int!)
-                                
-                                notification.setValue(true, forKeyPath: "_showsButtons")
-                                
-                                notification.soundName = "Glass"
-                                
-                                if let photo = sms["image_url"].string {
-                                    Alamofire.request(photo)
-                                        .responseData { response in
-                                            notification.setValue(NSImage(data: response.result.value!), forKey: "_identityImage")
-                                            self.center.deliver(notification)
-                                    }
-                                } else {
-                                    self.center.deliver(notification)
-                                }
-                            }
-                        }
-                        break;
-                    default:
-                        log.warning("Unknown type of push", pushType)
-                        break;
-                    }
-                }
-                break;
-            default:
-                log.warning("Unknown type of message ", message["type"].string!)
-                break;
-            }
-        }
-        
-    }
     
     // Given a push JSON object from Pushbullet create a notification
     // Used in mirror and subtype:push
@@ -533,7 +570,5 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
         return message
     }
     
-    func websocketDidReceiveData(socket: WebSocketClient, data: Data) {
-        
-    }
+    
 }

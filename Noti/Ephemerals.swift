@@ -44,9 +44,10 @@ class Ephemerals: NSObject {
         debugPrint(body)
         print("----------------------")
         
-        Alamofire.request("https://api.pushbullet.com/v2/ephemerals", method: .post, parameters: body.dictionaryObject!, encoding: JSONEncoding.default, headers: headers)
+        
+        AF.request("https://api.pushbullet.com/v2/ephemerals", method: .post, parameters: body.dictionaryObject!, encoding: JSONEncoding.default, headers: headers)
             .responseString { response in
-                var result = JSON.parse(response.result.value!)
+                var result = JSON(response.value!)
                 if(response.response?.statusCode != 200) {
                     
                     let alert = NSAlert()
@@ -81,7 +82,7 @@ class Ephemerals: NSObject {
             return
         }
         
-        let headers = [
+        let headers: HTTPHeaders = [
             "Authorization": "Bearer " + APIkey
         ];
         
@@ -90,14 +91,14 @@ class Ephemerals: NSObject {
             "key": source_device_iden + "_threads"
         ]
         
-        Alamofire.request("https://api.pushbullet.com/v3/get-permanent", method: .post, parameters: body.dictionaryObject!, encoding: JSONEncoding.default, headers: headers)
+        AF.request("https://api.pushbullet.com/v3/get-permanent", method: .post, parameters: body.dictionaryObject!, encoding: JSONEncoding.default, headers: headers)
             .responseString { response in
                 debugPrint(response)
-                var parsed = JSON.parse(response.result.value!)
+                var parsed = JSON(response.value!)
                 
                 //decrypt if needed....
                 if self.crypt != nil && parsed["data"]["encrypted"].exists() {
-                    parsed["data"] = JSON.parse((self.crypt!.decryptMessage(parsed["data"]["ciphertext"].string!))!)
+                    parsed["data"] = JSON((self.crypt!.decryptMessage(parsed["data"]["ciphertext"].string!))!)
                 }
                 
                 if let threads = parsed["data"]["threads"].array {

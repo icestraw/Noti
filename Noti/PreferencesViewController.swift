@@ -52,7 +52,7 @@ open class PreferencesViewController: NSViewController {
         }
     }
     
-    open override func controlTextDidChange(_ obj: Notification) {
+    @IBAction func textDidChange(_ sender: Any) {
         //gets called every time password changes
         if(encryptionField.stringValue == FAKE_PASSWORD) {
             return;
@@ -68,6 +68,11 @@ open class PreferencesViewController: NSViewController {
         print("Changed password, reinitializing crypt...")
         appDelegate?.pushManager?.initCrypt()
     }
+    
+    
+//    open override func controlTextDidChange(_ obj: Notification) {
+//        
+//    }
     
     override open func viewDidLoad() {
         defaultsController.initialValues = [

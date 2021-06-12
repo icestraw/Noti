@@ -35,8 +35,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 pushManager!.disconnect()
             }
             
-            let storyboard = NSStoryboard(name: NSStoryboard.Name(rawValue: "Main"), bundle: nil)
-            iwc = storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier(rawValue: "IntroWindowController")) as? NSWindowController
+            let storyboard = NSStoryboard(name: NSStoryboard.Name("Main"), bundle: nil)
+            iwc = storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier("IntroWindowController")) as? NSWindowController
             NSApplication.shared.activate(ignoringOtherApps: true)
             iwc!.showWindow(self)
             iwc!.window?.makeKeyAndOrderFront(self)
@@ -51,8 +51,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return;
         }
         
-        let storyboard = NSStoryboard(name: NSStoryboard.Name(rawValue: "Main"), bundle: nil)
-        pwc = storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier(rawValue: "PreferencesWindowController")) as? NSWindowController
+        let storyboard = NSStoryboard(name: NSStoryboard.Name("Main"), bundle: nil)
+        pwc = storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier("PreferencesWindowController")) as? NSWindowController
         NSApplication.shared.activate(ignoringOtherApps: true)
         pwc!.showWindow(self)
         pwc!.window?.makeKeyAndOrderFront(self)

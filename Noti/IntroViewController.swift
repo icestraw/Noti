@@ -55,9 +55,9 @@ class IntroViewController: NSViewController {
     }
     
     @IBAction func startAuth(_ sender: AnyObject) {
-        let storyboard = NSStoryboard(name: NSStoryboard.Name(rawValue: "Main"), bundle: nil)
+        let storyboard = NSStoryboard(name: NSStoryboard.Name("Main"), bundle: nil)
         
-        awc = storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier(rawValue: "AuthWindowController")) as? NSWindowController
+        awc = storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier("AuthWindowController")) as? NSWindowController
         print("showWindow")
         awc!.showWindow(self)
     }
