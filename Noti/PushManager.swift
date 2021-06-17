@@ -350,7 +350,7 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
                                     if let result = response.value {
                                         let push = JSON(parseJSON:result)["pushes"][0]    // get ["pushes"][latest] array
                                         self.pushHistory.append(push)
-                                        self.center.deliver(self.createNotification(push))
+                                        self._deliver(self.createNotification(push))
                                     }
                             };
                         }
@@ -364,7 +364,7 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
                         switch(pushType) {
                         case "mirror":
                             log.debug("PUSH -> mirror")
-                            center.deliver(createNotification(push))
+                            self._deliver(createNotification(push))
                             break;
                         case "dismissal":
                             //loop through current user notifications, if identifier matches, remove it
@@ -570,5 +570,43 @@ class PushManager: NSObject, WebSocketDelegate, NSUserNotificationCenterDelegate
         return message
     }
     
+    
+    // MARK: deliver filter
+    func _deliver(_ notification: NSUserNotification) -> Void {
+        let bnTitle = UserDefaults.standard.string(forKey: PreferenceItems.blockedNotificationsTitle.rawValue) ?? ""
+        let bnSubtitle1 = UserDefaults.standard.string(forKey: PreferenceItems.blockedNotificationsSubtitle1.rawValue) ?? ""
+        let bnSubtitle2 = UserDefaults.standard.string(forKey: PreferenceItems.blockedNotificationsSubtitle2.rawValue) ?? ""
+        
+        let bnTitleWords = bnTitle.split(separator: ",")
+        let bnSubtitle1Words = bnSubtitle1.split(separator: ",")
+        let bnSubtitle2Words = bnSubtitle2.split(separator: ",")
+        
+        for text in bnTitleWords {
+            let trimText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimText.count > 0 {
+                if (notification.title ?? "").contains(trimText) {
+                    return
+                }
+            }
+        }
+        for text in bnSubtitle1Words {
+            let trimText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimText.count > 0 {
+                if (notification.subtitle ?? "").contains(trimText) {
+                    return
+                }
+            }
+        }
+        for text in bnSubtitle2Words {
+            let trimText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimText.count > 0 {
+                if (notification.informativeText ?? "").contains(trimText) {
+                    return
+                }
+            }
+        }
+        
+        self.center.deliver(notification)
+    }
     
 }

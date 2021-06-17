@@ -10,7 +10,15 @@ import Cocoa
 import Foundation
 import EMCLoginItem
 
-open class PreferencesViewController: NSViewController {
+enum PreferenceItems: String {
+    case blockedNotificationsTitle = "PIblockedNotificationsTitle"
+    case blockedNotificationsSubtitle1 = "PIblockedNotificationsSubtitle1"
+    case blockedNotificationsSubtitle2 = "PIblockedNotificationsSubtitle2"
+    case openAppsData = "PIopenAppsData"
+}
+
+open class PreferencesViewController: NSViewController, NSControlTextEditingDelegate {
+    
     @IBOutlet weak var sounds:NSArrayController!
     
     @IBOutlet weak var enableEncryption:NSButton!
@@ -22,6 +30,13 @@ open class PreferencesViewController: NSViewController {
     @IBOutlet weak var roundedImages:NSButton!
     @IBOutlet weak var omitAppName:NSButton!
     
+    @IBOutlet weak var bnTitleField: NSTextField!
+    @IBOutlet weak var bnSubtitle1Field: NSTextField!
+    @IBOutlet weak var bnSubtitle2Field: NSTextField!
+    
+    @IBOutlet weak var oaTableView: NSTableView!
+    
+    var isInitialized = false
     var appDelegate = NSApplication.shared.delegate as? AppDelegate
     var loginItem = EMCLoginItem()
     
@@ -52,27 +67,38 @@ open class PreferencesViewController: NSViewController {
         }
     }
     
-    @IBAction func textDidChange(_ sender: Any) {
-        //gets called every time password changes
-        if(encryptionField.stringValue == FAKE_PASSWORD) {
-            return;
-        } else if encryptionField.stringValue == "" {
-            UserDefaults.standard.removeObject(forKey: "secureKey")
-            enableEncryption.state = .off
-            encryptionField.isEnabled = false
-            appDelegate?.pushManager?.initCrypt()
-            return;
+    public func controlTextDidChange(_ obj: Notification) {
+        if !isInitialized {
+            return
         }
-        
-        appDelegate?.pushManager?.setPassword(password: encryptionField.stringValue)
-        print("Changed password, reinitializing crypt...")
-        appDelegate?.pushManager?.initCrypt()
+        if let tf = obj.object as! NSTextField? {
+            if tf == encryptionField {
+                //gets called every time password changes
+                if(encryptionField.stringValue == FAKE_PASSWORD) {
+                    return;
+                } else if encryptionField.stringValue == "" {
+                    UserDefaults.standard.removeObject(forKey: "secureKey")
+                    enableEncryption.state = .off
+                    encryptionField.isEnabled = false
+                    appDelegate?.pushManager?.initCrypt()
+                    return;
+                }
+                
+                appDelegate?.pushManager?.setPassword(password: encryptionField.stringValue)
+                print("Changed password, reinitializing crypt...")
+                appDelegate?.pushManager?.initCrypt()
+            } else if tf == bnTitleField {
+                // Blocked notifications title
+                UserDefaults.standard.setValue(tf.stringValue, forKey: PreferenceItems.blockedNotificationsTitle.rawValue)
+            } else if tf == bnSubtitle1Field {
+                UserDefaults.standard.setValue(tf.stringValue, forKey: PreferenceItems.blockedNotificationsSubtitle1.rawValue)
+            } else if tf == bnSubtitle2Field {
+                UserDefaults.standard.setValue(tf.stringValue, forKey: PreferenceItems.blockedNotificationsSubtitle2.rawValue)
+            }
+        } else {
+            
+        }
     }
-    
-    
-//    open override func controlTextDidChange(_ obj: Notification) {
-//        
-//    }
     
     override open func viewDidLoad() {
         defaultsController.initialValues = [
@@ -109,5 +135,23 @@ open class PreferencesViewController: NSViewController {
         let roundedImagesDefaultExists = UserDefaults.standard.object(forKey: "roundedImages") != nil
         let roundedImagesDefault = roundedImagesDefaultExists ? UserDefaults.standard.bool(forKey: "roundedImages") : true;
         roundedImages.state = roundedImagesDefault ? .on : .off;
+        
+        if !isInitialized {
+            bnTitleField.stringValue = UserDefaults.standard.string(forKey: PreferenceItems.blockedNotificationsTitle.rawValue) ?? ""
+            bnSubtitle1Field.stringValue = UserDefaults.standard.string(forKey: PreferenceItems.blockedNotificationsSubtitle1.rawValue) ?? ""
+            bnSubtitle2Field.stringValue = UserDefaults.standard.string(forKey: PreferenceItems.blockedNotificationsSubtitle2.rawValue) ?? ""
+            isInitialized = true
+        }
     }
+    
+    // MARK: Test
+    
+    @IBAction func testButtonPressed(_ sender: Any) {
+        
+    }
+    
+    
+    // MARK: Open apps
+    
+    
 }
